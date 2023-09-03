@@ -100,7 +100,7 @@ class Dblock(nn.Module):
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
                 if m.bias is not None:
                     m.bias.data.zero_()
-        # self.att=CBAMs(channel,16)
+        self.att=CBAMs(channel,16)
 
     def forward(self, x):
         dilate1_out = nonlinearity(self.dilate1(x))
@@ -109,7 +109,7 @@ class Dblock(nn.Module):
         dilate4_out = nonlinearity(self.dilate4(dilate3_out))
 
         out = x + dilate1_out + dilate2_out + dilate3_out + dilate4_out
-        return out
+        return self.att(out)
 
 
 class DecoderBlock(nn.Module):
@@ -154,20 +154,17 @@ class RFE_LINKNET(nn.Module):
         self.encoder3 = resnet.layer3
         self.encoder4 = resnet.layer4
 
-        # self.dblock1=Dblock(64,d_bin=[1,32,32,64])
-        # self.dblock2=Dblock(128,d_bin=[1,16,16,32])
-        # self.dblock3=Dblock(256,d_bin=[1,4,8,16])
-        # self.dblock4=Dblock(512,d_bin=[1,2,4,8])
+        self.dblock1=Dblock(64,d_bin=[1,32,32,64])
+        self.dblock2=Dblock(128,d_bin=[1,16,16,32])
+        self.dblock3=Dblock(256,d_bin=[1,4,8,16])
+        self.dblock4=Dblock(512,d_bin=[1,2,4,8])
 
 
         self.decoder4 = DecoderBlock(filters[3], filters[2])
         self.decoder3 = DecoderBlock(filters[2], filters[1])
         self.decoder2 = DecoderBlock(filters[1], filters[0])
         self.decoder1 = DecoderBlock(filters[0], filters[0])
-        self.att1=CBAMs(64,16)
-        self.att2 = CBAMs(128, 16)
-        self.att3 = CBAMs(256, 16)
-        self.att4 = CBAMs(512, 16)
+
 
 
         self.finaldeconv1 = nn.ConvTranspose2d(filters[0], 32, 4, 2, 1)
@@ -189,12 +186,13 @@ class RFE_LINKNET(nn.Module):
 
         # Center
 
+        e4=self.dblock4(e4)
 
         # Decoder
-        d4 = self.decoder4(self.att4(e4))
-        d3 = self.decoder3(self.att3(d4))
-        d2 = self.decoder2(self.att2(d3) )
-        d1 = self.decoder1(self.att1(d2))
+        d4 = self.decoder4(e4)+self.dblock3(e3)
+        d3 = self.decoder3(d4)+self.dblock2(e2)
+        d2 = self.decoder2(d3)+self.dblock1(e1)
+        d1 = self.decoder1(d2)
 
         out = self.finaldeconv1(d1)
         out = self.finalrelu1(out)
@@ -203,11 +201,5 @@ class RFE_LINKNET(nn.Module):
         out = self.finalconv3(out)
 
         return F.sigmoid(out)
-if __name__ == '__main__':
-    a=torch.randn((1,3,1024,1024))
-    model=RFE_LINKNET()
-    out=model(a)
-    flops, params = profile(model, inputs=(a,))
-    print("%s | %s | %s" % ("Model", "Params(M)", "FLOPs(G)"))
-    print("------|-----------|------")
-    print("%s | %.7f | %.7f" % ("模型  ", params / (1000 ** 2), flops / (1000 ** 3)))
+
+
